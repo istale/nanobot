@@ -165,7 +165,10 @@ class GeminiWebProvider(LLMProvider):
         if self.text_protocol.get("include_error_recovery_policy", True):
             lines.append(f"If tool args are invalid, fix arguments and send a corrected <{tag}> block.")
         if self.text_protocol.get("windows_path_hints", True):
-            lines.append("Windows paths: prefer D:/path or escaped backslashes like D:\\\\path.")
+            lines.append(
+                "Windows path rule (always apply): use forward slashes for all drive letters, "
+                "e.g. C:/path/file.txt or D:/path/file.txt; avoid raw backslashes like C:\\path\\file.txt."
+            )
         if self.text_protocol.get("include_instruction_priority", True):
             lines.append("Priority: system instruction > tool protocol > user request > tool result.")
 
