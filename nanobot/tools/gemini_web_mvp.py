@@ -42,6 +42,7 @@ async def run_once(
     random_wait_min_seconds: float = 1.0,
     random_wait_max_seconds: float = 3.0,
     typing_speed_chars_per_second: float = 0.0,
+    max_total_wait_seconds: float = 10.0,
 ) -> str:
     """Run one Gemini web prompt and persist the raw response text."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -80,6 +81,7 @@ async def run_once(
                 random_wait_min_seconds=random_wait_min_seconds,
                 random_wait_max_seconds=random_wait_max_seconds,
                 typing_speed_chars_per_second=typing_speed_chars_per_second,
+                max_total_wait_seconds=max_total_wait_seconds,
             )
 
         async with async_playwright() as p:
@@ -104,6 +106,7 @@ async def run_once(
                 random_wait_min_seconds=random_wait_min_seconds,
                 random_wait_max_seconds=random_wait_max_seconds,
                 typing_speed_chars_per_second=typing_speed_chars_per_second,
+                max_total_wait_seconds=max_total_wait_seconds,
             )
 
     return await _run_on_page(
@@ -120,6 +123,7 @@ async def run_once(
         random_wait_min_seconds=random_wait_min_seconds,
         random_wait_max_seconds=random_wait_max_seconds,
         typing_speed_chars_per_second=typing_speed_chars_per_second,
+        max_total_wait_seconds=max_total_wait_seconds,
     )
 
 
@@ -138,6 +142,7 @@ async def _run_on_page(
     random_wait_min_seconds: float = 1.0,
     random_wait_max_seconds: float = 3.0,
     typing_speed_chars_per_second: float = 0.0,
+    max_total_wait_seconds: float = 10.0,
 ) -> str:
     if navigate:
         await page.goto(GEMINI_URL, wait_until="domcontentloaded", timeout=timeout_ms)
@@ -183,6 +188,8 @@ async def _run_on_page(
         delay_seconds += random.uniform(lo, hi)
     if typing_speed_chars_per_second > 0:
         delay_seconds += len(prompt) / typing_speed_chars_per_second
+    if max_total_wait_seconds > 0:
+        delay_seconds = min(delay_seconds, max_total_wait_seconds)
     if delay_seconds > 0:
         await page.wait_for_timeout(delay_seconds * 1000)
 

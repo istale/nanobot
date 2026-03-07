@@ -64,6 +64,7 @@ class GeminiWebProvider(LLMProvider):
             "random_wait_min_seconds": 1.0,
             "random_wait_max_seconds": 3.0,
             "typing_speed_chars_per_second": 0.0,
+            "max_total_wait_seconds": 10.0,
         }
         if isinstance(send_delay_config, dict):
             self.send_delay.update(send_delay_config)
@@ -470,6 +471,7 @@ class GeminiWebProvider(LLMProvider):
                 random_wait_min_seconds=float(self.send_delay.get("random_wait_min_seconds", 1.0) or 0.0),
                 random_wait_max_seconds=float(self.send_delay.get("random_wait_max_seconds", 3.0) or 0.0),
                 typing_speed_chars_per_second=float(self.send_delay.get("typing_speed_chars_per_second", 0.0) or 0.0),
+                max_total_wait_seconds=float(self.send_delay.get("max_total_wait_seconds", 10.0) or 0.0),
             )
         except Exception as e:
             tb = traceback.format_exc()

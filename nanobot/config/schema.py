@@ -264,6 +264,7 @@ class GeminiWebSendDelayConfig(Base):
     random_wait_min_seconds: float = 1.0
     random_wait_max_seconds: float = 3.0
     typing_speed_chars_per_second: float = 0.0  # 0 means disabled
+    max_total_wait_seconds: float = 10.0  # Cap total pre-send wait; <=0 disables cap
 
 
 class ProviderConfig(Base):

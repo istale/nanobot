@@ -145,7 +145,8 @@ nanobot --help
         "randomWaitEnabled": true,
         "randomWaitMinSeconds": 1,
         "randomWaitMaxSeconds": 3,
-        "typingSpeedCharsPerSecond": 0
+        "typingSpeedCharsPerSecond": 0,
+        "maxTotalWaitSeconds": 10
       }
     }
   }
@@ -157,7 +158,8 @@ nanobot --help
 > `providers.geminiWeb.sendDelay` 用於送出前等待時間：
 > - `randomWaitEnabled + Min/Max`：隨機等待秒數區間（預設 1~3 秒）
 > - `typingSpeedCharsPerSecond`：依字數計算等待（字數 / 每秒字元）
-> - 若兩者都啟用，等待時間會**相加**。
+> - 若兩者都啟用，等待時間會**相加**。  
+> - `maxTotalWaitSeconds`：總等待上限（預設 10 秒，設定 `<=0` 代表不封頂）。
 
 ---
 
