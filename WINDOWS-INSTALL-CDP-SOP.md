@@ -133,6 +133,13 @@ nanobot --help
       "spawn",
       "cron"
     ]
+  },
+  "providers": {
+    "geminiWeb": {
+      "textProtocol": {
+        "nativeWebMode": "prefer"
+      }
+    }
   }
 }
 ```
@@ -154,6 +161,23 @@ nanobot --help
 - `message`：發送訊息到已連接 channel
 - `spawn`：啟動子代理
 - `cron`：排程（需有啟用 cron service）
+
+內網限制範例（關閉 nanobot 網路工具，交給 Gemini Web 內建網路能力）：
+
+```json
+{
+  "tools": {
+    "enabledTools": ["read_file", "write_file", "edit_file", "list_dir", "exec", "message", "spawn", "cron"]
+  },
+  "providers": {
+    "geminiWeb": {
+      "textProtocol": {
+        "nativeWebMode": "strict"
+      }
+    }
+  }
+}
+```
 
 最小安全範例（僅檔案工具）：
 

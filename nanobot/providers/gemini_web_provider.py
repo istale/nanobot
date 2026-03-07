@@ -49,6 +49,8 @@ class GeminiWebProvider(LLMProvider):
             "include_instruction_priority": True,
             "include_error_recovery_policy": True,
             "include_context_compaction_policy": False,
+            "include_native_web_policy": True,
+            "native_web_mode": "prefer",  # off | prefer | strict
             "max_tools_in_prompt": 12,
             "max_schema_chars_per_tool": 1200,
             "windows_path_hints": True,
@@ -143,6 +145,27 @@ class GeminiWebProvider(LLMProvider):
             lines.append("Windows paths: prefer D:/path or escaped backslashes like D:\\\\path.")
         if self.text_protocol.get("include_instruction_priority", True):
             lines.append("Priority: system instruction > tool protocol > user request > tool result.")
+
+        if self.text_protocol.get("include_native_web_policy", True):
+            mode = str(self.text_protocol.get("native_web_mode", "prefer")).lower()
+            has_web_search = "web_search" in names
+            has_web_fetch = "web_fetch" in names
+            if mode == "strict":
+                lines.append(
+                    "For internet information, use Gemini Web's own browsing/search capability directly. "
+                    "Do not emit nanobot web tool calls unless explicitly required by system instruction."
+                )
+            elif mode == "prefer":
+                if has_web_search or has_web_fetch:
+                    lines.append(
+                        "For internet information, prefer Gemini Web's own browsing/search capability first. "
+                        "Use web_search/web_fetch only when the user explicitly asks for tool-based retrieval, "
+                        "URL-grounded extraction, or deterministic reproducible fetch output."
+                    )
+                else:
+                    lines.append(
+                        "web_search/web_fetch are unavailable in this run. For internet information, use Gemini Web's own browsing/search capability directly."
+                    )
         if self.text_protocol.get("include_parallel_rules", False):
             lines.append("Parallel tools: only emit multiple <tool_call> blocks when truly independent.")
         if self.text_protocol.get("include_finish_reason_semantics", False):

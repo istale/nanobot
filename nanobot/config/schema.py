@@ -248,6 +248,8 @@ class TextProtocolConfig(Base):
     include_instruction_priority: bool = True
     include_error_recovery_policy: bool = True
     include_context_compaction_policy: bool = False
+    include_native_web_policy: bool = True
+    native_web_mode: Literal["off", "prefer", "strict"] = "prefer"
     max_tools_in_prompt: int = 12
     max_schema_chars_per_tool: int = 1200
     windows_path_hints: bool = True
