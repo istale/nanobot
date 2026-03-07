@@ -279,7 +279,23 @@ nanobot agent -m "hello"
 - 一律使用獨立 `--user-data-dir`
 - 關掉舊的 CDP Chrome 視窗後重開
 
-### Q4: workspace 路徑不生效
+### Q4: CDP 一般模式下 Gemini 常出現 tool hiccup / 報錯，但無痕正常
+這通常是「一般模式 profile 狀態污染」造成（擴充套件、快取、舊 session、頁籤上下文）。
+
+建議處理：
+- 改用 **專用 profile**（新的 `--user-data-dir`），不要共用日常 Chrome profile
+- 在該專用 profile 先停用 extension，再登入 Gemini
+- 只保留單一 Gemini 分頁做測試
+
+範例啟動：
+
+```powershell
+& "C:\Program Files\Google\Chrome\Application\chrome.exe" `
+  --remote-debugging-port=9222 `
+  --user-data-dir="D:\nanobot-root\home\profiles\chrome-cdp-clean"
+```
+
+### Q5: workspace 路徑不生效
 - 檢查 `config.json` 是否位於 `NANOBOT_HOME` 下
 - 檢查 `agents.defaults.workspace` 是否寫成合法路徑
 
