@@ -358,6 +358,11 @@ class GeminiWebProvider(LLMProvider):
     def _normalize_windows_paths(arguments: dict[str, Any]) -> dict[str, Any]:
         path_keys = {"path", "file_path", "filepath", "workdir", "cwd", "user_data_dir", "output", "output_path"}
 
+        def _normalize_inline_windows_paths(text: str) -> str:
+            # Convert obvious Windows drive paths to forward slashes:
+            # D:\temp\a.txt -> D:/temp/a.txt
+            return re.sub(r"([A-Za-z]):\\([^\s\"']*)", lambda m: f"{m.group(1)}:/{m.group(2).replace('\\', '/')}", text)
+
         def _fix(v: Any, key: str | None = None) -> Any:
             if isinstance(v, dict):
                 return {k: _fix(val, k) for k, val in v.items()}
@@ -365,6 +370,12 @@ class GeminiWebProvider(LLMProvider):
                 return [_fix(x, key) for x in v]
             if isinstance(v, str):
                 s = v.strip()
+                if re.match(r"^[A-Za-z]:\\", s):
+                    return s.replace("\\", "/")
+                if key in path_keys and re.match(r"^[A-Za-z]:/", s):
+                    return s
+                if key == "command":
+                    return _normalize_inline_windows_paths(v)
                 if key in path_keys and re.match(r"^[A-Za-z]:\\", s):
                     return s.replace("\\", "/")
             return v
