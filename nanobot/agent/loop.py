@@ -65,6 +65,7 @@ class AgentLoop:
         session_manager: SessionManager | None = None,
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
+        enabled_tools: list[str] | None = None,
     ):
         from nanobot.config.schema import ExecToolConfig
         self.bus = bus
@@ -86,6 +87,7 @@ class AgentLoop:
         self.context = ContextBuilder(workspace)
         self.sessions = session_manager or SessionManager(workspace)
         self.tools = ToolRegistry()
+        self.enabled_tools = {t.strip() for t in (enabled_tools or []) if isinstance(t, str) and t.strip()} or None
         self.subagents = SubagentManager(
             provider=provider,
             workspace=workspace,
@@ -98,6 +100,7 @@ class AgentLoop:
             web_proxy=web_proxy,
             exec_config=self.exec_config,
             restrict_to_workspace=restrict_to_workspace,
+            enabled_tools=list(self.enabled_tools) if self.enabled_tools else None,
         )
 
         self._running = False
@@ -112,22 +115,40 @@ class AgentLoop:
         self._processing_lock = asyncio.Lock()
         self._register_default_tools()
 
+    def _tool_enabled(self, name: str) -> bool:
+        """Check whether a built-in tool should be registered."""
+        return self.enabled_tools is None or name in self.enabled_tools
+
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
         allowed_dir = self.workspace if self.restrict_to_workspace else None
-        for cls in (ReadFileTool, WriteFileTool, EditFileTool, ListDirTool):
-            self.tools.register(cls(workspace=self.workspace, allowed_dir=allowed_dir))
-        self.tools.register(ExecTool(
-            working_dir=str(self.workspace),
-            timeout=self.exec_config.timeout,
-            restrict_to_workspace=self.restrict_to_workspace,
-            path_append=self.exec_config.path_append,
-        ))
-        self.tools.register(WebSearchTool(api_key=self.brave_api_key, proxy=self.web_proxy))
-        self.tools.register(WebFetchTool(proxy=self.web_proxy))
-        self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
-        self.tools.register(SpawnTool(manager=self.subagents))
-        if self.cron_service:
+
+        fs_tools = (
+            ("read_file", ReadFileTool),
+            ("write_file", WriteFileTool),
+            ("edit_file", EditFileTool),
+            ("list_dir", ListDirTool),
+        )
+        for name, cls in fs_tools:
+            if self._tool_enabled(name):
+                self.tools.register(cls(workspace=self.workspace, allowed_dir=allowed_dir))
+
+        if self._tool_enabled("exec"):
+            self.tools.register(ExecTool(
+                working_dir=str(self.workspace),
+                timeout=self.exec_config.timeout,
+                restrict_to_workspace=self.restrict_to_workspace,
+                path_append=self.exec_config.path_append,
+            ))
+        if self._tool_enabled("web_search"):
+            self.tools.register(WebSearchTool(api_key=self.brave_api_key, proxy=self.web_proxy))
+        if self._tool_enabled("web_fetch"):
+            self.tools.register(WebFetchTool(proxy=self.web_proxy))
+        if self._tool_enabled("message"):
+            self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
+        if self._tool_enabled("spawn"):
+            self.tools.register(SpawnTool(manager=self.subagents))
+        if self.cron_service and self._tool_enabled("cron"):
             self.tools.register(CronTool(self.cron_service))
 
     async def _connect_mcp(self) -> None:

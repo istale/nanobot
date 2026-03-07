@@ -107,9 +107,9 @@ nanobot --help
 
 ---
 
-## 6. 編輯 config.json（設定 provider + workspace）
+## 6. 編輯 config.json（設定 provider + workspace + tool allowlist）
 
-編輯 `D:\nanobot-root\home\config.json`，至少包含：
+編輯 `D:\nanobot-root\home\config.json`，建議至少包含：
 
 ```json
 {
@@ -119,11 +119,51 @@ nanobot --help
       "provider": "gemini_web",
       "workspace": "D:/nanobot-root/workspace-default"
     }
+  },
+  "tools": {
+    "enabledTools": [
+      "read_file",
+      "write_file",
+      "edit_file",
+      "list_dir",
+      "exec",
+      "web_search",
+      "web_fetch",
+      "message",
+      "spawn",
+      "cron"
+    ]
   }
 }
 ```
 
-> Windows 路徑建議使用 `/`，如 `D:/...`，可減少反斜線跳脫問題。
+> Windows 路徑建議使用 `/`，如 `D:/...`，可減少反斜線跳脫問題。  
+> `tools.enabledTools` 是「可用工具白名單」。不填時預設允許全部內建工具。
+
+---
+
+## 6.1 內建可用 tools 清單（供 `enabledTools` 參考）
+
+- `read_file`：讀取檔案
+- `write_file`：寫入檔案
+- `edit_file`：以字串替換編輯檔案
+- `list_dir`：列目錄
+- `exec`：執行 shell 指令
+- `web_search`：網路搜尋
+- `web_fetch`：抓取網頁內容
+- `message`：發送訊息到已連接 channel
+- `spawn`：啟動子代理
+- `cron`：排程（需有啟用 cron service）
+
+最小安全範例（僅檔案工具）：
+
+```json
+{
+  "tools": {
+    "enabledTools": ["read_file", "write_file", "edit_file", "list_dir"]
+  }
+}
+```
 
 ---
 

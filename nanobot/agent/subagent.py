@@ -34,6 +34,7 @@ class SubagentManager:
         web_proxy: str | None = None,
         exec_config: "ExecToolConfig | None" = None,
         restrict_to_workspace: bool = False,
+        enabled_tools: list[str] | None = None,
     ):
         from nanobot.config.schema import ExecToolConfig
         self.provider = provider
@@ -47,8 +48,12 @@ class SubagentManager:
         self.web_proxy = web_proxy
         self.exec_config = exec_config or ExecToolConfig()
         self.restrict_to_workspace = restrict_to_workspace
+        self.enabled_tools = {t.strip() for t in (enabled_tools or []) if isinstance(t, str) and t.strip()} or None
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
+
+    def _tool_enabled(self, name: str) -> bool:
+        return self.enabled_tools is None or name in self.enabled_tools
 
     async def spawn(
         self,
@@ -96,18 +101,26 @@ class SubagentManager:
             # Build subagent tools (no message tool, no spawn tool)
             tools = ToolRegistry()
             allowed_dir = self.workspace if self.restrict_to_workspace else None
-            tools.register(ReadFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
-            tools.register(WriteFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
-            tools.register(EditFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
-            tools.register(ListDirTool(workspace=self.workspace, allowed_dir=allowed_dir))
-            tools.register(ExecTool(
-                working_dir=str(self.workspace),
-                timeout=self.exec_config.timeout,
-                restrict_to_workspace=self.restrict_to_workspace,
-                path_append=self.exec_config.path_append,
-            ))
-            tools.register(WebSearchTool(api_key=self.brave_api_key, proxy=self.web_proxy))
-            tools.register(WebFetchTool(proxy=self.web_proxy))
+            fs_tools = (
+                ("read_file", ReadFileTool),
+                ("write_file", WriteFileTool),
+                ("edit_file", EditFileTool),
+                ("list_dir", ListDirTool),
+            )
+            for name, cls in fs_tools:
+                if self._tool_enabled(name):
+                    tools.register(cls(workspace=self.workspace, allowed_dir=allowed_dir))
+            if self._tool_enabled("exec"):
+                tools.register(ExecTool(
+                    working_dir=str(self.workspace),
+                    timeout=self.exec_config.timeout,
+                    restrict_to_workspace=self.restrict_to_workspace,
+                    path_append=self.exec_config.path_append,
+                ))
+            if self._tool_enabled("web_search"):
+                tools.register(WebSearchTool(api_key=self.brave_api_key, proxy=self.web_proxy))
+            if self._tool_enabled("web_fetch"):
+                tools.register(WebFetchTool(proxy=self.web_proxy))
             
             system_prompt = self._build_subagent_prompt()
             messages: list[dict[str, Any]] = [
