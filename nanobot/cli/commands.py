@@ -211,6 +211,7 @@ def _make_provider(config: Config):
         pconf = config.providers.gemini_web
         return GeminiWebProvider(
             text_protocol_config=(pconf.text_protocol.model_dump() if pconf.text_protocol else None),
+            send_delay_config=(pconf.send_delay.model_dump() if pconf.send_delay else None),
         )
 
     console.print("[red]Error: This minimal build only supports gemini_web provider.[/red]")

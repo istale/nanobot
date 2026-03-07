@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -37,6 +38,10 @@ async def run_once(
     user_data_dir: Path | None = None,
     debug_dir: Path | None = None,
     keep_browser_open: bool = False,
+    random_wait_enabled: bool = True,
+    random_wait_min_seconds: float = 1.0,
+    random_wait_max_seconds: float = 3.0,
+    typing_speed_chars_per_second: float = 0.0,
 ) -> str:
     """Run one Gemini web prompt and persist the raw response text."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -71,6 +76,10 @@ async def run_once(
                 transient=False,
                 navigate=(page.url == "" or GEMINI_URL not in page.url),
                 key=key,
+                random_wait_enabled=random_wait_enabled,
+                random_wait_min_seconds=random_wait_min_seconds,
+                random_wait_max_seconds=random_wait_max_seconds,
+                typing_speed_chars_per_second=typing_speed_chars_per_second,
             )
 
         async with async_playwright() as p:
@@ -91,6 +100,10 @@ async def run_once(
                 transient=True,
                 navigate=True,
                 key=key,
+                random_wait_enabled=random_wait_enabled,
+                random_wait_min_seconds=random_wait_min_seconds,
+                random_wait_max_seconds=random_wait_max_seconds,
+                typing_speed_chars_per_second=typing_speed_chars_per_second,
             )
 
     return await _run_on_page(
@@ -103,6 +116,10 @@ async def run_once(
         transient=transient,
         navigate=navigate,
         key=key,
+        random_wait_enabled=random_wait_enabled,
+        random_wait_min_seconds=random_wait_min_seconds,
+        random_wait_max_seconds=random_wait_max_seconds,
+        typing_speed_chars_per_second=typing_speed_chars_per_second,
     )
 
 
@@ -117,6 +134,10 @@ async def _run_on_page(
     transient: bool,
     navigate: bool,
     key: tuple[str, bool] | None = None,
+    random_wait_enabled: bool = True,
+    random_wait_min_seconds: float = 1.0,
+    random_wait_max_seconds: float = 3.0,
+    typing_speed_chars_per_second: float = 0.0,
 ) -> str:
     if navigate:
         await page.goto(GEMINI_URL, wait_until="domcontentloaded", timeout=timeout_ms)
@@ -154,6 +175,17 @@ async def _run_on_page(
 
     await prompt_box.click()
     await prompt_box.fill(prompt)
+
+    delay_seconds = 0.0
+    if random_wait_enabled:
+        lo = max(0.0, min(random_wait_min_seconds, random_wait_max_seconds))
+        hi = max(0.0, max(random_wait_min_seconds, random_wait_max_seconds))
+        delay_seconds += random.uniform(lo, hi)
+    if typing_speed_chars_per_second > 0:
+        delay_seconds += len(prompt) / typing_speed_chars_per_second
+    if delay_seconds > 0:
+        await page.wait_for_timeout(delay_seconds * 1000)
+
     await prompt_box.press("Enter")
 
     async def _response_count() -> int:

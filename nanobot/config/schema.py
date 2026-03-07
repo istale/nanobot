@@ -257,6 +257,15 @@ class TextProtocolConfig(Base):
     windows_path_hints: bool = True
 
 
+class GeminiWebSendDelayConfig(Base):
+    """Human-like delay settings before sending message in Gemini Web UI."""
+
+    random_wait_enabled: bool = True
+    random_wait_min_seconds: float = 1.0
+    random_wait_max_seconds: float = 3.0
+    typing_speed_chars_per_second: float = 0.0  # 0 means disabled
+
+
 class ProviderConfig(Base):
     """LLM provider configuration."""
 
@@ -264,6 +273,7 @@ class ProviderConfig(Base):
     api_base: str | None = None
     extra_headers: dict[str, str] | None = None  # Custom headers (e.g. APP-Code for AiHubMix)
     text_protocol: TextProtocolConfig = Field(default_factory=TextProtocolConfig)
+    send_delay: GeminiWebSendDelayConfig = Field(default_factory=GeminiWebSendDelayConfig)
     options: dict[str, Any] | None = None
 
 

@@ -30,6 +30,7 @@ class GeminiWebProvider(LLMProvider):
         timeout_ms: int = 120000,
         output_dir: Path | None = None,
         text_protocol_config: dict[str, Any] | None = None,
+        send_delay_config: dict[str, Any] | None = None,
     ):
         super().__init__(api_key=None, api_base=None)
         self.user_data_dir = user_data_dir or (get_data_dir() / "profiles" / "gemini-web")
@@ -57,6 +58,15 @@ class GeminiWebProvider(LLMProvider):
         }
         if isinstance(text_protocol_config, dict):
             self.text_protocol.update(text_protocol_config)
+
+        self.send_delay = {
+            "random_wait_enabled": True,
+            "random_wait_min_seconds": 1.0,
+            "random_wait_max_seconds": 3.0,
+            "typing_speed_chars_per_second": 0.0,
+        }
+        if isinstance(send_delay_config, dict):
+            self.send_delay.update(send_delay_config)
 
     def get_default_model(self) -> str:
         return "gemini_web/default"
@@ -456,6 +466,10 @@ class GeminiWebProvider(LLMProvider):
                 timeout_ms=self.timeout_ms,
                 user_data_dir=self.user_data_dir,
                 keep_browser_open=True,
+                random_wait_enabled=bool(self.send_delay.get("random_wait_enabled", True)),
+                random_wait_min_seconds=float(self.send_delay.get("random_wait_min_seconds", 1.0) or 0.0),
+                random_wait_max_seconds=float(self.send_delay.get("random_wait_max_seconds", 3.0) or 0.0),
+                typing_speed_chars_per_second=float(self.send_delay.get("typing_speed_chars_per_second", 0.0) or 0.0),
             )
         except Exception as e:
             tb = traceback.format_exc()

@@ -140,6 +140,12 @@ nanobot --help
         "nativeWebMode": "prefer",
         "toolCallTag": "xx_tool_call",
         "toolNamePrefix": "xx_"
+      },
+      "sendDelay": {
+        "randomWaitEnabled": true,
+        "randomWaitMinSeconds": 1,
+        "randomWaitMaxSeconds": 3,
+        "typingSpeedCharsPerSecond": 0
       }
     }
   }
@@ -147,7 +153,11 @@ nanobot --help
 ```
 
 > Windows 路徑建議使用 `/`，如 `D:/...`，可減少反斜線跳脫問題。  
-> `tools.enabledTools` 是「可用工具白名單」。不填時預設允許全部內建工具。
+> `tools.enabledTools` 是「可用工具白名單」。不填時預設允許全部內建工具。  
+> `providers.geminiWeb.sendDelay` 用於送出前等待時間：
+> - `randomWaitEnabled + Min/Max`：隨機等待秒數區間（預設 1~3 秒）
+> - `typingSpeedCharsPerSecond`：依字數計算等待（字數 / 每秒字元）
+> - 若兩者都啟用，等待時間會**相加**。
 
 ---
 
