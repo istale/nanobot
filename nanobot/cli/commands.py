@@ -7,18 +7,6 @@ import signal
 import sys
 from pathlib import Path
 
-# Force UTF-8 encoding for Windows console
-if sys.platform == "win32":
-    import locale
-    if sys.stdout.encoding != "utf-8":
-        os.environ["PYTHONIOENCODING"] = "utf-8"
-        # Re-open stdout/stderr with UTF-8 encoding
-        try:
-            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
-
 import typer
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
@@ -99,7 +87,8 @@ def _init_prompt_session() -> None:
     except Exception:
         pass
 
-    history_file = Path.home() / ".nanobot" / "history" / "cli_history"
+    from nanobot.config.loader import get_data_dir
+    history_file = get_data_dir() / "history" / "cli_history"
     history_file.parent.mkdir(parents=True, exist_ok=True)
 
     _PROMPT_SESSION = PromptSession(
@@ -201,7 +190,8 @@ def onboard():
 
     console.print(f"\n{__logo__} nanobot is ready!")
     console.print("\nNext steps:")
-    console.print("  1. Add your API key to [cyan]~/.nanobot/config.json[/cyan]")
+    from nanobot.config.loader import get_config_path
+    console.print(f"  1. Add your API key to [cyan]{get_config_path()}[/cyan]")
     console.print("     Get one at: https://openrouter.ai/keys")
     console.print("  2. Chat: [cyan]nanobot agent -m \"Hello!\"[/cyan]")
     console.print("\n[dim]Want Telegram/WhatsApp? See: https://github.com/HKUDS/nanobot#-chat-apps[/dim]")
@@ -211,41 +201,22 @@ def onboard():
 
 
 def _make_provider(config: Config):
-    """Create the appropriate LLM provider from config."""
-    from nanobot.providers.openai_codex_provider import OpenAICodexProvider
+    """Create provider (internal minimal mode: gemini_web only)."""
+    from nanobot.providers.gemini_web_provider import GeminiWebProvider
 
     model = config.agents.defaults.model
     provider_name = config.get_provider_name(model)
-    p = config.get_provider(model)
 
-    # OpenAI Codex (OAuth)
-    if provider_name == "openai_codex" or model.startswith("openai-codex/"):
-        return OpenAICodexProvider(default_model=model)
-
-    # Custom: direct OpenAI-compatible endpoint, bypasses LiteLLM
-    from nanobot.providers.custom_provider import CustomProvider
-    if provider_name == "custom":
-        return CustomProvider(
-            api_key=p.api_key if p else "no-key",
-            api_base=config.get_api_base(model) or "http://localhost:8000/v1",
-            default_model=model,
+    if provider_name == "gemini_web" or model.startswith("gemini_web/") or model.startswith("gemini-web/"):
+        pconf = config.providers.gemini_web
+        return GeminiWebProvider(
+            text_protocol_config=(pconf.text_protocol.model_dump() if pconf.text_protocol else None),
         )
 
-    from nanobot.providers.litellm_provider import LiteLLMProvider
-    from nanobot.providers.registry import find_by_name
-    spec = find_by_name(provider_name)
-    if not model.startswith("bedrock/") and not (p and p.api_key) and not (spec and spec.is_oauth):
-        console.print("[red]Error: No API key configured.[/red]")
-        console.print("Set one in ~/.nanobot/config.json under providers section")
-        raise typer.Exit(1)
-
-    return LiteLLMProvider(
-        api_key=p.api_key if p else None,
-        api_base=config.get_api_base(model),
-        default_model=model,
-        extra_headers=p.extra_headers if p else None,
-        provider_name=provider_name,
-    )
+    console.print("[red]Error: This minimal build only supports gemini_web provider.[/red]")
+    from nanobot.config.loader import get_config_path
+    console.print(f"Set model to [cyan]gemini_web/default[/cyan] in {get_config_path()}")
+    raise typer.Exit(1)
 
 
 # ============================================================================
@@ -256,15 +227,13 @@ def _make_provider(config: Config):
 @app.command()
 def gateway(
     port: int = typer.Option(18790, "--port", "-p", help="Gateway port"),
-    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
-    config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
     """Start the nanobot gateway."""
     from nanobot.agent.loop import AgentLoop
     from nanobot.bus.queue import MessageBus
     from nanobot.channels.manager import ChannelManager
-    from nanobot.config.loader import load_config
+    from nanobot.config.loader import get_data_dir, load_config
     from nanobot.cron.service import CronService
     from nanobot.cron.types import CronJob
     from nanobot.heartbeat.service import HeartbeatService
@@ -274,20 +243,16 @@ def gateway(
         import logging
         logging.basicConfig(level=logging.DEBUG)
 
-    config_path = Path(config) if config else None
-    config = load_config(config_path)
-    if workspace:
-        config.agents.defaults.workspace = workspace
-
     console.print(f"{__logo__} Starting nanobot gateway on port {port}...")
+
+    config = load_config()
     sync_workspace_templates(config.workspace_path)
     bus = MessageBus()
     provider = _make_provider(config)
     session_manager = SessionManager(config.workspace_path)
 
     # Create cron service first (callback set after agent creation)
-    # Use workspace path for per-instance cron store
-    cron_store_path = config.workspace_path / "cron" / "jobs.json"
+    cron_store_path = get_data_dir() / "cron" / "jobs.json"
     cron = CronService(cron_store_path)
 
     # Create agent with cron service
@@ -529,21 +494,12 @@ def agent(
         else:
             cli_channel, cli_chat_id = "cli", session_id
 
-        def _handle_signal(signum, frame):
-            sig_name = signal.Signals(signum).name
+        def _exit_on_sigint(signum, frame):
             _restore_terminal()
-            console.print(f"\nReceived {sig_name}, goodbye!")
-            sys.exit(0)
+            console.print("\nGoodbye!")
+            os._exit(0)
 
-        signal.signal(signal.SIGINT, _handle_signal)
-        signal.signal(signal.SIGTERM, _handle_signal)
-        # SIGHUP is not available on Windows
-        if hasattr(signal, 'SIGHUP'):
-            signal.signal(signal.SIGHUP, _handle_signal)
-        # Ignore SIGPIPE to prevent silent process termination when writing to closed pipes
-        # SIGPIPE is not available on Windows
-        if hasattr(signal, 'SIGPIPE'):
-            signal.signal(signal.SIGPIPE, signal.SIG_IGN)
+        signal.signal(signal.SIGINT, _exit_on_sigint)
 
         async def run_interactive():
             bus_task = asyncio.create_task(agent_loop.run())
@@ -622,6 +578,59 @@ def agent(
                 await agent_loop.close_mcp()
 
         asyncio.run(run_interactive())
+
+
+# ============================================================================
+# Gemini Web MVP (Playwright normal mode, non-API)
+# ============================================================================
+
+
+@app.command("gemini-web")
+def gemini_web(
+    prompt: str = typer.Argument(..., help="Single prompt to send to Gemini Web"),
+    output: Path = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output txt path for raw Gemini response (default: outputs/gemini-web-<timestamp>.txt)",
+    ),
+    headless: bool = typer.Option(False, "--headless/--no-headless", help="Run browser headless"),
+    timeout_ms: int = typer.Option(120000, "--timeout-ms", help="Timeout waiting for UI/response"),
+    user_data_dir: Path | None = typer.Option(
+        None,
+        "--user-data-dir",
+        help="Persistent browser profile dir (keeps Gemini login session)",
+    ),
+):
+    """MVP: Use Playwright browser mode to query Gemini web and save raw response."""
+    try:
+        from nanobot.tools.gemini_web_mvp import default_output_path, run_sync
+    except ImportError as exc:
+        console.print("[red]Missing dependency: playwright[/red]")
+        console.print("Install with: pip install playwright && python -m playwright install chromium")
+        raise typer.Exit(1) from exc
+
+    from nanobot.config.loader import get_data_dir
+
+    out_path = output or default_output_path()
+    resolved_user_data_dir = user_data_dir or (get_data_dir() / "profiles" / "gemini-web")
+    console.print(f"{__logo__} Running Gemini Web MVP...")
+    console.print(f"Output file: [cyan]{out_path}[/cyan]")
+
+    try:
+        response = run_sync(
+            prompt=prompt,
+            output_path=out_path,
+            headless=headless,
+            timeout_ms=timeout_ms,
+            user_data_dir=resolved_user_data_dir,
+        )
+    except Exception as exc:
+        console.print(f"[red]Failed:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    console.print("[green]✓[/green] Gemini response saved")
+    console.print(response)
 
 
 # ============================================================================
@@ -731,8 +740,9 @@ def _get_bridge_dir() -> Path:
     import shutil
     import subprocess
 
-    # User's bridge location
-    user_bridge = Path.home() / ".nanobot" / "bridge"
+    # User bridge location
+    from nanobot.config.loader import get_data_dir
+    user_bridge = get_data_dir() / "bridge"
 
     # Check if already built
     if (user_bridge / "dist" / "index.js").exists():
