@@ -83,3 +83,38 @@ git push --force-with-lease origin custom
 - This workflow assumes **single maintainer** on `custom`.
 - `--ff-only` keeps `main` clean and prevents accidental merge commits.
 - `custom` history is expected to be rewritten after rebase (hence force-with-lease).
+
+---
+
+## Intranet Open WebUI (CDP branch)
+
+For branch `feature/openwebui-cdp-facade`, nanobot gateway can expose an OpenAI-compatible API for Open WebUI.
+
+### Endpoints
+
+- `GET /v1/models`
+- `POST /v1/chat/completions` (non-stream)
+
+### Start (Windows / PowerShell)
+
+```powershell
+cd D:\nanobot-root\repos\nanobot
+.\.venv\Scripts\Activate.ps1
+
+$env:NANOBOT_HOME="D:\nanobot-root\home"
+$env:NANOBOT_CHROME_CDP_URL="http://127.0.0.1:9222"
+$env:NANOBOT_GEMINI_WEB_URL="https://gemini.google.com/app"
+
+nanobot gateway --port 18790 --verbose --webui-api-host 127.0.0.1 --webui-api-port 18080
+```
+
+### Open WebUI settings
+
+- API Base URL: `http://127.0.0.1:18080/v1`
+- Model: `nanobot-cdp`
+
+### Quick check
+
+```powershell
+curl http://127.0.0.1:18080/v1/models
+```
