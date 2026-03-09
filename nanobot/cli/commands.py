@@ -229,6 +229,8 @@ def _make_provider(config: Config):
 def gateway(
     port: int = typer.Option(18790, "--port", "-p", help="Gateway port"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+    webui_api_port: int = typer.Option(18080, "--webui-api-port", help="OpenAI-compatible API port for Open WebUI"),
+    webui_api_host: str = typer.Option("127.0.0.1", "--webui-api-host", help="OpenAI-compatible API bind host"),
 ):
     """Start the nanobot gateway."""
     from nanobot.agent.loop import AgentLoop
@@ -238,6 +240,7 @@ def gateway(
     from nanobot.cron.service import CronService
     from nanobot.cron.types import CronJob
     from nanobot.heartbeat.service import HeartbeatService
+    from nanobot.openai_api import run_openai_api_server
     from nanobot.session.manager import SessionManager
 
     if verbose:
@@ -383,6 +386,9 @@ def gateway(
         console.print(f"[green]✓[/green] Cron: {cron_status['jobs']} scheduled jobs")
 
     console.print(f"[green]✓[/green] Heartbeat: every {hb_cfg.interval_s}s")
+    console.print(
+        f"[green]✓[/green] Open WebUI API: http://{webui_api_host}:{webui_api_port}/v1"
+    )
 
     async def run():
         try:
@@ -391,6 +397,12 @@ def gateway(
             await asyncio.gather(
                 agent.run(),
                 channels.start_all(),
+                run_openai_api_server(
+                    agent=agent,
+                    host=webui_api_host,
+                    port=webui_api_port,
+                    model_id="nanobot-cdp",
+                ),
             )
         except KeyboardInterrupt:
             console.print("\nShutting down...")
