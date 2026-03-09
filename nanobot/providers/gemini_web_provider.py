@@ -50,8 +50,6 @@ class GeminiWebProvider(LLMProvider):
             "include_context_compaction_policy": False,
             "include_native_web_policy": True,
             "native_web_mode": "prefer",  # off | prefer | strict
-            "tool_call_tag": "xx_tool_call",
-            "tool_name_prefix": "xx_",
             "max_tools_in_prompt": 12,
             "max_schema_chars_per_tool": 1200,
             "windows_path_hints": True,
@@ -93,24 +91,6 @@ class GeminiWebProvider(LLMProvider):
             return text if isinstance(text, str) else ""
         return str(content)
 
-    def _tool_call_tag(self) -> str:
-        tag = str(self.text_protocol.get("tool_call_tag", "xx_tool_call") or "xx_tool_call").strip()
-        return tag or "xx_tool_call"
-
-    def _tool_name_prefix(self) -> str:
-        return str(self.text_protocol.get("tool_name_prefix", "xx_") or "").strip()
-
-    def _display_tool_name(self, name: str) -> str:
-        prefix = self._tool_name_prefix()
-        return f"{prefix}{name}" if prefix else name
-
-    def _normalize_tool_name(self, name: str) -> str:
-        raw = (name or "").strip()
-        prefix = self._tool_name_prefix()
-        if prefix and raw.startswith(prefix):
-            return raw[len(prefix):]
-        return raw
-
     def _render_tool_constraints(self, tools: list[dict[str, Any]]) -> str:
         if not self.text_protocol.get("include_parameter_constraints", True):
             return ""
@@ -124,7 +104,6 @@ class GeminiWebProvider(LLMProvider):
             name = str(fn.get("name") or "").strip()
             if not name:
                 continue
-            display_name = self._display_tool_name(name)
             params = fn.get("parameters") if isinstance(fn.get("parameters"), dict) else {}
             required = params.get("required") if isinstance(params.get("required"), list) else []
             properties = params.get("properties") if isinstance(params.get("properties"), dict) else {}
@@ -136,16 +115,15 @@ class GeminiWebProvider(LLMProvider):
                     if isinstance(enum, list) and enum:
                         t = f"{t} enum={enum[:6]}"
                     prop_lines.append(f"- {k}: {t}")
-            tag = self._tool_call_tag()
             block = (
-                f"[TOOL: {display_name}]\n"
+                f"[TOOL: {name}]\n"
                 f"required: {', '.join(required) if required else '(none)'}\n"
                 f"properties:\n{chr(10).join(prop_lines) if prop_lines else '- (no properties)'}"
             )
             if name == "exec":
                 block += (
                     "\nexample:\n"
-                    f'<{tag}>{{"name":"{self._display_tool_name("exec")}","arguments":{{"command":"dir D:/temp"}}}}</{tag}>'
+                    '<tool_call>{"name":"exec","arguments":{"command":"dir D:/temp"}}</tool_call>'
                 )
             chunks.append(block[:max_chars])
         return "\n\n".join(chunks)
@@ -158,23 +136,20 @@ class GeminiWebProvider(LLMProvider):
         if not names:
             return ""
 
-        display_names = [self._display_tool_name(n) for n in names]
-        tag = self._tool_call_tag()
-
         lines = [
             "[TOOL_CALL_PROTOCOL]",
             "When you need a tool, include at least one XML block in your reply:",
-            f'<{tag}>{{"name":"<tool_name>","arguments":{{...}}}}</{tag}>',
+            '<tool_call>{"name":"<tool_name>","arguments":{...}}</tool_call>',
             "You may include short natural language before/after the block.",
-            f"Allowed tools: {', '.join(display_names)}",
+            f"Allowed tools: {', '.join(names)}",
         ]
 
         if self.text_protocol.get("include_tool_selection_policy", True):
             lines.append("Tool selection: use list_dir/read_file/edit_file when possible; use exec only when needed.")
         if self.text_protocol.get("include_output_format_guarantees", True):
-            lines.append(f"Place valid JSON inside <{tag}>; avoid markdown fences for tool-call payload.")
+            lines.append("Place valid JSON inside <tool_call>; avoid markdown fences for tool-call payload.")
         if self.text_protocol.get("include_error_recovery_policy", True):
-            lines.append(f"If tool args are invalid, fix arguments and send a corrected <{tag}> block.")
+            lines.append("If tool args are invalid, fix arguments and send a corrected <tool_call> block.")
         if self.text_protocol.get("windows_path_hints", True):
             lines.append(
                 "Windows path rule (always apply): use forward slashes for all drive letters, "
@@ -204,9 +179,9 @@ class GeminiWebProvider(LLMProvider):
                         "web_search/web_fetch are unavailable in this run. For internet information, use Gemini Web's own browsing/search capability directly."
                     )
         if self.text_protocol.get("include_parallel_rules", False):
-            lines.append(f"Parallel tools: only emit multiple <{tag}> blocks when truly independent.")
+            lines.append("Parallel tools: only emit multiple <tool_call> blocks when truly independent.")
         if self.text_protocol.get("include_finish_reason_semantics", False):
-            lines.append(f"If no tool is needed, answer normally without <{tag}>.")
+            lines.append("If no tool is needed, answer normally without <tool_call>.")
         if self.text_protocol.get("include_context_compaction_policy", False):
             lines.append("Keep tool-call payload minimal; avoid repeating long prior context in arguments.")
 
@@ -218,19 +193,17 @@ class GeminiWebProvider(LLMProvider):
 
     def _repair_hint_from_tool_result(self, tool_result: str) -> str:
         t = (tool_result or "").lower()
-        tag = self._tool_call_tag()
-        exec_name = self._display_tool_name("exec")
         if "invalid parameters for tool 'exec'" in t and "missing required command" in t:
             return (
                 "\n\n[RETRY_HINT]\n"
                 "The previous tool call was invalid for exec: missing required field 'command'.\n"
                 "Send a corrected tool call, e.g.:\n"
-                f'<{tag}>{{"name":"{exec_name}","arguments":{{"command":"dir D:/temp"}}}}</{tag}>'
+                '<tool_call>{"name":"exec","arguments":{"command":"dir D:/temp"}}</tool_call>'
             )
         if "invalid parameters" in t:
             return (
                 "\n\n[RETRY_HINT]\n"
-                f"The previous tool call had invalid arguments. Keep tool name, fix required fields/types, then resend one corrected <{tag}> block."
+                "The previous tool call had invalid arguments. Keep tool name, fix required fields/types, then resend one corrected <tool_call> block."
             )
         return ""
 
@@ -400,10 +373,9 @@ class GeminiWebProvider(LLMProvider):
         calls: list[ToolCallRequest] = []
         source = html.unescape(content or "")
 
-        tag = re.escape(self._tool_call_tag())
         patterns = [
-            re.compile(rf"<{tag}>\s*(.*?)\s*</{tag}>", re.DOTALL),
-            re.compile(r"<tool_call>\s*(.*?)\s*</tool_call>", re.DOTALL),  # backward compatibility
+            re.compile(r"<tool_call>\s*(.*?)\s*</tool_call>", re.DOTALL),
+            re.compile(r"<xx_tool_call>\s*(.*?)\s*</xx_tool_call>", re.DOTALL),  # backward compatibility
         ]
 
         candidates: list[str] = []
@@ -425,7 +397,9 @@ class GeminiWebProvider(LLMProvider):
             data = self._load_tool_payload(raw)
             if not data:
                 continue
-            name = self._normalize_tool_name(str(data.get("name", "")).strip())
+            name = str(data.get("name", "")).strip()
+            if name.startswith("xx_"):
+                name = name[3:]
             arguments = data.get("arguments", {})
             if isinstance(arguments, str):
                 parsed_args = self._load_tool_payload(arguments)

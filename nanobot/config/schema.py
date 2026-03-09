@@ -250,8 +250,6 @@ class TextProtocolConfig(Base):
     include_context_compaction_policy: bool = False
     include_native_web_policy: bool = True
     native_web_mode: Literal["off", "prefer", "strict"] = "prefer"
-    tool_call_tag: str = "xx_tool_call"
-    tool_name_prefix: str = "xx_"
     max_tools_in_prompt: int = 12
     max_schema_chars_per_tool: int = 1200
     windows_path_hints: bool = True

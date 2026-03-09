@@ -137,9 +137,7 @@ nanobot --help
   "providers": {
     "geminiWeb": {
       "textProtocol": {
-        "nativeWebMode": "prefer",
-        "toolCallTag": "xx_tool_call",
-        "toolNamePrefix": "xx_"
+        "nativeWebMode": "prefer"
       },
       "sendDelay": {
         "randomWaitEnabled": true,
