@@ -268,6 +268,7 @@ nanobot agent -m "hello"
    ```powershell
    $env:NANOBOT_HOME="D:\nanobot-root\home"
    $env:NANOBOT_CHROME_CDP_URL="http://127.0.0.1:9222"
+   $env:NANOBOT_GEMINI_WEB_URL="https://gemini.google.com/app"
    ```
 4. 啟動 Chrome（CDP 參數）
 5. 執行 `nanobot agent ...`
