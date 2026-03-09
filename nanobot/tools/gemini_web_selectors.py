@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import os
 
-GEMINI_URL = os.getenv("NANOBOT_GEMINI_WEB_URL", "https://gemini.google.com/app").strip() or "https://gemini.google.com/app"
+GEMINI_URL = os.getenv("NANOBOT_GEMINI_WEB_URL", "").strip()
+if not GEMINI_URL:
+    raise RuntimeError("NANOBOT_GEMINI_WEB_URL is required (no fallback).")
 
 INPUT_SELECTORS = [
     "textarea[aria-label*='Enter a prompt']",
