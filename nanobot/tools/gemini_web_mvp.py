@@ -221,7 +221,11 @@ async def _run_on_page(
             count = await locator.count()
             if count <= 0:
                 continue
-            text = (await locator.nth(count - 1).inner_text()).strip()
+            node = locator.nth(count - 1)
+            # Prefer text_content() to preserve whitespace/indentation better
+            # than inner_text() for code blocks / JSON payloads.
+            text_raw = await node.text_content()
+            text = (text_raw or "").strip()
             if text:
                 return text
         return ""
