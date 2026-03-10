@@ -312,6 +312,60 @@ class GeminiWebProvider(LLMProvider):
         return data if isinstance(data, dict) else None
 
     @staticmethod
+    def _fallback_write_file_payload(raw: str) -> dict[str, Any] | None:
+        """Best-effort fallback parser for malformed write_file payloads.
+
+        Used only when strict JSON parse fails. Targets common Gemini-web drift where
+        content is present but JSON escaping is broken near the end of payload.
+        """
+        text = (raw or "").strip()
+        if '"name"' not in text or "write_file" not in text or '"arguments"' not in text:
+            return None
+
+        path_match = re.search(r'"path"\s*:\s*"((?:\\.|[^"\\])*)"', text)
+        content_start = re.search(r'"content"\s*:\s*"', text)
+        if not path_match or not content_start:
+            return None
+
+        # Prefer the trailing pattern observed in malformed payloads.
+        end = text.rfind('"}}')
+        if end < content_start.end():
+            end = text.rfind('"}')
+        if end < content_start.end():
+            return None
+
+        raw_path = path_match.group(1)
+        raw_content = text[content_start.end() : end]
+        if '"content":"""' in text and raw_content.startswith('""') and not raw_content.startswith('"""'):
+            raw_content = '"' + raw_content
+
+        def _decode_path(s: str) -> str:
+            try:
+                return json.loads(f'"{s}"')
+            except Exception:
+                fixed = GeminiWebProvider._escape_invalid_json_backslashes(s)
+                try:
+                    return json.loads(f'"{fixed}"')
+                except Exception:
+                    return s.replace('\\\\', '\\')
+
+        content_value = (
+            raw_content.replace('\\n', '\n')
+            .replace('\\r', '\r')
+            .replace('\\t', '\t')
+            .replace('\\"', '"')
+            .replace('\\\\', '\\')
+        )
+
+        return {
+            "name": "write_file",
+            "arguments": {
+                "path": _decode_path(raw_path),
+                "content": content_value,
+            },
+        }
+
+    @staticmethod
     def _iter_json_objects(text: str) -> list[str]:
         objs: list[str] = []
         depth = 0
@@ -397,6 +451,20 @@ class GeminiWebProvider(LLMProvider):
 
         for raw in candidates:
             data = self._load_tool_payload(raw)
+            if data:
+                parsed_name = str(data.get("name", "")).strip()
+                parsed_args = data.get("arguments", {})
+                if (
+                    parsed_name.replace("xx_", "", 1) == "write_file"
+                    and isinstance(parsed_args, dict)
+                    and parsed_args.get("content", None) in ("", None)
+                    and '"content":"""' in raw
+                ):
+                    fallback = self._fallback_write_file_payload(raw)
+                    if fallback:
+                        data = fallback
+            if not data:
+                data = self._fallback_write_file_payload(raw)
             if not data:
                 continue
             name = str(data.get("name", "")).strip()

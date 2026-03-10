@@ -3,8 +3,8 @@ import sys
 import types
 
 
-def test_extract_tool_code_tag_as_tool_call():
-    # Avoid requiring playwright at import-time for this parser unit test.
+def _make_provider():
+    # Avoid requiring playwright at import-time for parser unit tests.
     fake_async_api = types.ModuleType("playwright.async_api")
     fake_async_api.BrowserContext = object
     fake_async_api.Page = object
@@ -21,7 +21,11 @@ def test_extract_tool_code_tag_as_tool_call():
 
     from nanobot.providers.gemini_web_provider import GeminiWebProvider
 
-    provider = GeminiWebProvider()
+    return GeminiWebProvider()
+
+
+def test_extract_tool_code_tag_as_tool_call():
+    provider = _make_provider()
     content = (
         'Before call\n'
         '<tool_code>{"name":"read_file","arguments":{"path":"D:\\\\temp\\\\README.md"}}</tool_code>\n'
@@ -35,3 +39,21 @@ def test_extract_tool_code_tag_as_tool_call():
     # Windows path normalization should still apply in compatibility path
     assert calls[0].arguments["path"] == "D:/temp/README.md"
     assert "tool_code" not in (cleaned or "")
+
+
+def test_fallback_parse_malformed_write_file_payload():
+    provider = _make_provider()
+    malformed = (
+        '{"name":"write_file","arguments":{"path":"D:\\\\temp\\\\main.py",'
+        '"content":"""module doc"""\nprint(1)"}}'
+    )
+    content = f"<tool_call>{malformed}</tool_call>"
+
+    cleaned, calls = provider._extract_tool_calls(content)
+
+    assert len(calls) == 1
+    assert calls[0].name == "write_file"
+    assert calls[0].arguments["path"] == "D:/temp/main.py"
+    assert '"""module doc"""' in calls[0].arguments["content"]
+    assert "print(1)" in calls[0].arguments["content"]
+    assert "tool_call" not in (cleaned or "")
