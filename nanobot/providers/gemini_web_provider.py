@@ -376,6 +376,8 @@ class GeminiWebProvider(LLMProvider):
         patterns = [
             re.compile(r"<tool_call>\s*(.*?)\s*</tool_call>", re.DOTALL),
             re.compile(r"<xx_tool_call>\s*(.*?)\s*</xx_tool_call>", re.DOTALL),  # backward compatibility
+            re.compile(r"<tool_code>\s*(.*?)\s*</tool_code>", re.DOTALL),  # compatibility for model drift
+            re.compile(r"<xx_tool_code>\s*(.*?)\s*</xx_tool_code>", re.DOTALL),  # compatibility variant
         ]
 
         candidates: list[str] = []
