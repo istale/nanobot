@@ -45,7 +45,7 @@ def test_fallback_parse_malformed_write_file_payload():
     provider = _make_provider()
     malformed = (
         '{"name":"write_file","arguments":{"path":"D:\\\\temp\\\\main.py",'
-        '"content":"""module doc"""\nprint(1)"}}'
+        '"content":"""module doc"""\nprint(1)\nprint(\"line1\\nline2\")"}}'
     )
     content = f"<tool_call>{malformed}</tool_call>"
 
@@ -56,4 +56,6 @@ def test_fallback_parse_malformed_write_file_payload():
     assert calls[0].arguments["path"] == "D:/temp/main.py"
     assert '"""module doc"""' in calls[0].arguments["content"]
     assert "print(1)" in calls[0].arguments["content"]
+    # Keep string escape sequence as literal, do not convert to real newline.
+    assert 'print("line1\\nline2")' in calls[0].arguments["content"]
     assert "tool_call" not in (cleaned or "")
