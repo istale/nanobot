@@ -451,18 +451,19 @@ class GeminiWebProvider(LLMProvider):
 
         for raw in candidates:
             data = self._load_tool_payload(raw)
-            if data:
-                parsed_name = str(data.get("name", "")).strip()
-                parsed_args = data.get("arguments", {})
-                if (
-                    parsed_name.replace("xx_", "", 1) == "write_file"
-                    and isinstance(parsed_args, dict)
-                    and parsed_args.get("content", None) in ("", None)
-                    and '"content":"""' in raw
-                ):
-                    fallback = self._fallback_write_file_payload(raw)
-                    if fallback:
-                        data = fallback
+
+            # For write_file, always prefer dedicated fallback parsing from raw payload,
+            # because json.loads/json_repair may succeed but silently corrupt content.
+            parsed_name = str((data or {}).get("name", "")).strip() if isinstance(data, dict) else ""
+            raw_is_write_file = (
+                parsed_name.replace("xx_", "", 1) == "write_file"
+                or ('"name"' in raw and '"write_file"' in raw)
+            )
+            if raw_is_write_file:
+                fallback = self._fallback_write_file_payload(raw)
+                if fallback:
+                    data = fallback
+
             if not data:
                 data = self._fallback_write_file_payload(raw)
             if not data:
