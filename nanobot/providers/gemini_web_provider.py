@@ -391,6 +391,88 @@ class GeminiWebProvider(LLMProvider):
         return -1
 
     @staticmethod
+    def _decode_escaped_controls_outside_strings(text: str) -> str:
+        """Decode \n/\r/\t only when outside code strings."""
+        out: list[str] = []
+        i = 0
+        n = len(text)
+        in_string = False
+        quote_char = ""
+        triple = False
+
+        while i < n:
+            if not in_string:
+                if text.startswith('"""', i):
+                    in_string = True
+                    quote_char = '"'
+                    triple = True
+                    out.append('"""')
+                    i += 3
+                    continue
+                if text.startswith("'''", i):
+                    in_string = True
+                    quote_char = "'"
+                    triple = True
+                    out.append("'''")
+                    i += 3
+                    continue
+                if text[i] in ('"', "'") and not GeminiWebProvider._is_escaped(text, i):
+                    in_string = True
+                    quote_char = text[i]
+                    triple = False
+                    out.append(text[i])
+                    i += 1
+                    continue
+                if text[i] == "\\" and i + 1 < n:
+                    nxt = text[i + 1]
+                    if nxt == "n":
+                        out.append("\n")
+                        i += 2
+                        continue
+                    if nxt == "r":
+                        out.append("\r")
+                        i += 2
+                        continue
+                    if nxt == "t":
+                        out.append("\t")
+                        i += 2
+                        continue
+                out.append(text[i])
+                i += 1
+                continue
+
+            # inside string: keep escapes literal
+            if triple:
+                marker = quote_char * 3
+                if text.startswith(marker, i):
+                    in_string = False
+                    quote_char = ""
+                    triple = False
+                    out.append(marker)
+                    i += 3
+                    continue
+                out.append(text[i])
+                i += 1
+                continue
+
+            ch = text[i]
+            if ch == "\\" and i + 1 < n:
+                out.append(text[i])
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if ch == quote_char and not GeminiWebProvider._is_escaped(text, i):
+                in_string = False
+                quote_char = ""
+                out.append(ch)
+                i += 1
+                continue
+            out.append(ch)
+            i += 1
+
+        return "".join(out)
+
+    @staticmethod
     def _fallback_write_file_payload(raw: str) -> dict[str, Any] | None:
         """Best-effort fallback parser for malformed write_file payloads.
 
@@ -430,9 +512,10 @@ class GeminiWebProvider(LLMProvider):
                 except Exception:
                     return s.replace('\\\\', '\\')
 
-        # Preserve literal escape sequences inside code content (e.g. "\\n").
-        # Decode one JSON transport layer only; do not expand to control chars.
+        # Decode one JSON transport layer, then restore line controls only outside
+        # code strings (so string literals keep their own escapes).
         content_value = raw_content.replace('\\"', '"').replace('\\\\', '\\')
+        content_value = GeminiWebProvider._decode_escaped_controls_outside_strings(content_value)
 
         return {
             "name": "write_file",

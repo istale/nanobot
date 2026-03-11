@@ -61,6 +61,22 @@ def test_fallback_parse_malformed_write_file_payload():
     assert "tool_call" not in (cleaned or "")
 
 
+def test_write_file_escaped_newlines_outside_strings_are_restored():
+    provider = _make_provider()
+    malformed = (
+        '{"name":"write_file","arguments":{"path":"D:\\\\temp\\\\y.py",'
+        '"content":"def main():\\n    print(\"ok\")\\nprint(\"line1\\\\nline2\")"}}'
+    )
+    content = f"<tool_call>{malformed}</tool_call>"
+
+    _cleaned, calls = provider._extract_tool_calls(content)
+
+    assert len(calls) == 1
+    out = calls[0].arguments["content"]
+    assert "def main():\n    print(\"ok\")" in out
+    assert 'print("line1\\nline2")' in out
+
+
 def test_write_file_end_boundary_ignores_braces_inside_strings():
     provider = _make_provider()
     malformed = (
