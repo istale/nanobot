@@ -349,10 +349,10 @@ class GeminiWebProvider(LLMProvider):
                 except Exception:
                     return s.replace('\\\\', '\\')
 
-        # Keep escape sequences like \n / \t as literal text inside code strings.
-        # Only apply minimal unescape needed for structural recovery.
         content_value = (
-            raw_content
+            raw_content.replace('\\n', '\n')
+            .replace('\\r', '\r')
+            .replace('\\t', '\t')
             .replace('\\"', '"')
             .replace('\\\\', '\\')
         )
