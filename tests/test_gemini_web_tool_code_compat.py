@@ -45,7 +45,7 @@ def test_fallback_parse_malformed_write_file_payload():
     provider = _make_provider()
     malformed = (
         '{"name":"write_file","arguments":{"path":"D:\\\\temp\\\\main.py",'
-        '"content":"""module doc"""\nprint(1)\nprint(\"line1\\nline2\")"}}'
+        '"content":"""module doc"""\nprint(1)\nprint(\"line1\\\\nline2\")"}}'
     )
     content = f"<tool_call>{malformed}</tool_call>"
 
@@ -59,3 +59,19 @@ def test_fallback_parse_malformed_write_file_payload():
     # Keep string escape sequence as literal, do not convert to real newline.
     assert 'print("line1\\nline2")' in calls[0].arguments["content"]
     assert "tool_call" not in (cleaned or "")
+
+
+def test_write_file_end_boundary_ignores_braces_inside_strings():
+    provider = _make_provider()
+    malformed = (
+        '{"name":"write_file","arguments":{"path":"D:\\\\temp\\\\x.py",'
+        '"content":"print(\\"}} inside string\\")\nprint(2)"}}'
+    )
+    content = f"<tool_call>{malformed}</tool_call>"
+
+    _cleaned, calls = provider._extract_tool_calls(content)
+
+    assert len(calls) == 1
+    assert calls[0].name == "write_file"
+    assert 'print("}} inside string")' in calls[0].arguments["content"]
+    assert "print(2)" in calls[0].arguments["content"]

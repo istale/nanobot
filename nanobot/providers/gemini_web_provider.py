@@ -312,6 +312,85 @@ class GeminiWebProvider(LLMProvider):
         return data if isinstance(data, dict) else None
 
     @staticmethod
+    def _is_escaped(text: str, idx: int) -> bool:
+        bs = 0
+        j = idx - 1
+        while j >= 0 and text[j] == "\\":
+            bs += 1
+            j -= 1
+        return (bs % 2) == 1
+
+    @staticmethod
+    def _find_write_file_content_end(text: str, content_value_start: int) -> int:
+        """Find end quote index for write_file.content using code-string aware scan.
+
+        Returns index of the terminating quote (the quote before JSON closing braces),
+        or -1 if not found.
+        """
+        i = content_value_start
+        n = len(text)
+        in_string = False
+        quote_char = ""
+        triple = False
+
+        while i < n:
+            if not in_string:
+                # JSON terminator candidate: " followed by optional whitespace and } / }}
+                if text[i] == '"' and not GeminiWebProvider._is_escaped(text, i):
+                    j = i + 1
+                    while j < n and text[j].isspace():
+                        j += 1
+                    if j < n and text[j] == '}':
+                        return i
+
+                if text.startswith('"""', i) and not GeminiWebProvider._is_escaped(text, i):
+                    in_string = True
+                    quote_char = '"'
+                    triple = True
+                    i += 3
+                    continue
+                if text.startswith("'''", i) and not GeminiWebProvider._is_escaped(text, i):
+                    in_string = True
+                    quote_char = "'"
+                    triple = True
+                    i += 3
+                    continue
+                if text[i] in ('"', "'") and not GeminiWebProvider._is_escaped(text, i):
+                    in_string = True
+                    quote_char = text[i]
+                    triple = False
+                    i += 1
+                    continue
+                i += 1
+                continue
+
+            # inside code string
+            if triple:
+                marker = quote_char * 3
+                if text.startswith(marker, i):
+                    in_string = False
+                    quote_char = ""
+                    triple = False
+                    i += 3
+                    continue
+                i += 1
+                continue
+
+            # single/double-quoted code string
+            ch = text[i]
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == quote_char and not GeminiWebProvider._is_escaped(text, i):
+                in_string = False
+                quote_char = ""
+                i += 1
+                continue
+            i += 1
+
+        return -1
+
+    @staticmethod
     def _fallback_write_file_payload(raw: str) -> dict[str, Any] | None:
         """Best-effort fallback parser for malformed write_file payloads.
 
@@ -327,12 +406,14 @@ class GeminiWebProvider(LLMProvider):
         if not path_match or not content_start:
             return None
 
-        # Prefer the trailing pattern observed in malformed payloads.
-        end = text.rfind('"}}')
+        end = GeminiWebProvider._find_write_file_content_end(text, content_start.end())
         if end < content_start.end():
-            end = text.rfind('"}')
-        if end < content_start.end():
-            return None
+            # Fallback to reverse-boundary strategy for highly malformed tails.
+            end = text.rfind('"}}')
+            if end < content_start.end():
+                end = text.rfind('"}')
+            if end < content_start.end():
+                return None
 
         raw_path = path_match.group(1)
         raw_content = text[content_start.end() : end]
@@ -349,13 +430,9 @@ class GeminiWebProvider(LLMProvider):
                 except Exception:
                     return s.replace('\\\\', '\\')
 
-        content_value = (
-            raw_content.replace('\\n', '\n')
-            .replace('\\r', '\r')
-            .replace('\\t', '\t')
-            .replace('\\"', '"')
-            .replace('\\\\', '\\')
-        )
+        # Preserve literal escape sequences inside code content (e.g. "\\n").
+        # Decode one JSON transport layer only; do not expand to control chars.
+        content_value = raw_content.replace('\\"', '"').replace('\\\\', '\\')
 
         return {
             "name": "write_file",
