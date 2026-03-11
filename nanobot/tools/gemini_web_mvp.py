@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import random
 from datetime import UTC, datetime
 from pathlib import Path
@@ -222,18 +224,31 @@ async def _run_on_page(
             if count <= 0:
                 continue
             node = locator.nth(count - 1)
-            # Prefer text_content() to preserve whitespace/indentation better
-            # than inner_text() for code blocks / JSON payloads.
-            text_raw = await node.text_content()
-            text = (text_raw or "").strip()
+            # Keep raw text so trailing newlines are visible for guard logic.
+            text = (await node.text_content()) or ""
             if text:
                 return text
         return ""
+
+    guard_enabled = os.getenv("NANOBOT_GEMINI_NEWLINE_GUARD_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
+    newline_tail_threshold = int(os.getenv("NANOBOT_GEMINI_NEWLINE_TAIL_THRESHOLD", "6") or 6)
+
+    async def _try_click_stop() -> bool:
+        for stop_sel in STOP_SELECTORS:
+            try:
+                btn = page.locator(stop_sel).first
+                if await btn.is_visible(timeout=150):
+                    await btn.click(timeout=500)
+                    return True
+            except Exception:
+                continue
+        return False
 
     # Wait until streaming appears settled: stop button gone and text stable.
     extracted = ""
     stable_ticks = 0
     last_text = ""
+    anomaly_meta: dict | None = None
     while asyncio.get_event_loop().time() < deadline:
         cur_text = await _latest_response_text()
         if cur_text and cur_text == last_text:
@@ -249,6 +264,23 @@ async def _run_on_page(
             except Exception:
                 pass
 
+        if guard_enabled and last_text:
+            trailing_newlines = len(last_text) - len(last_text.rstrip("\n"))
+            if trailing_newlines >= newline_tail_threshold:
+                stop_clicked = await _try_click_stop()
+                await page.wait_for_timeout(800)
+                refreshed = await _latest_response_text()
+                if refreshed:
+                    last_text = refreshed
+                anomaly_meta = {
+                    "reason": "newline_tail_storm",
+                    "trailing_newlines": trailing_newlines,
+                    "threshold": newline_tail_threshold,
+                    "stop_clicked": stop_clicked,
+                }
+                extracted = last_text
+                break
+
         if last_text and stable_ticks >= 4 and not stop_visible:
             extracted = last_text
             break
@@ -262,6 +294,17 @@ async def _run_on_page(
         raise RuntimeError("Gemini response found but could not extract text.")
 
     output_path.write_text(extracted, encoding="utf-8")
+
+    if anomaly_meta:
+        ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        anomaly_base = output_path.parent / f"gemini-web-anomaly-{ts}"
+        anomaly_text_path = anomaly_base.with_suffix(".txt")
+        anomaly_meta_path = anomaly_base.with_suffix(".meta.json")
+        anomaly_text_path.write_text(extracted, encoding="utf-8")
+        anomaly_meta["output_path"] = str(output_path)
+        anomaly_meta["anomaly_text_path"] = str(anomaly_text_path)
+        anomaly_meta_path.write_text(json.dumps(anomaly_meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
     if transient:
         await context.close()
     return extracted
