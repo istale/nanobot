@@ -473,6 +473,21 @@ class GeminiWebProvider(LLMProvider):
         return "".join(out)
 
     @staticmethod
+    def _restore_common_python_dunder_tokens(text: str) -> str:
+        """Restore common markdown-eaten Python dunder guard patterns.
+
+        Some web-rendered markdown paths may drop leading/trailing double underscores,
+        turning `if __name__ == "__main__":` into `if name == "main":`.
+        """
+        out = text
+        out = re.sub(
+            r"(^|\n)(\s*)if\s+name\s*==\s*(['\"])main\3\s*:",
+            r"\1\2if __name__ == \3__main__\3:",
+            out,
+        )
+        return out
+
+    @staticmethod
     def _fallback_write_file_payload(raw: str) -> dict[str, Any] | None:
         """Best-effort fallback parser for malformed write_file payloads.
 
@@ -516,6 +531,7 @@ class GeminiWebProvider(LLMProvider):
         # code strings (so string literals keep their own escapes).
         content_value = raw_content.replace('\\"', '"').replace('\\\\', '\\')
         content_value = GeminiWebProvider._decode_escaped_controls_outside_strings(content_value)
+        content_value = GeminiWebProvider._restore_common_python_dunder_tokens(content_value)
 
         return {
             "name": "write_file",
