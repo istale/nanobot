@@ -138,3 +138,19 @@ def test_write_file_newline_before_decorator_restored():
     assert len(calls) == 1
     out = calls[0].arguments["content"]
     assert "def x():\n    return 1\n@app.route(\"/ok\")" in out
+
+
+def test_write_file_repairs_mailto_pollution_near_decorator():
+    provider = _make_provider()
+    malformed = (
+        '{"name":"write_file","arguments":{"path":"D:\\temp\\polluted.py",'
+        '"content":"@app.routemailto:n@app.route(\"/\")\\ndef index():\\n    return \'ok\'"}}'
+    )
+    content = f"<tool_call>{malformed}</tool_call>"
+
+    _cleaned, calls = provider._extract_tool_calls(content)
+
+    assert len(calls) == 1
+    out = calls[0].arguments["content"]
+    assert "@app.route(\"/\")" in out
+    assert "mailto:" not in out

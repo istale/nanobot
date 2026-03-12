@@ -510,6 +510,17 @@ class GeminiWebProvider(LLMProvider):
         return out
 
     @staticmethod
+    def _repair_mailto_pollution(text: str) -> str:
+        """Repair web-render/mailto pollution seen in code payloads."""
+        out = text
+        # Common pollution around decorators/newline markers.
+        out = out.replace("mailto:n@", "\\n@")
+        out = out.replace("mailto:%0An@", "\\n@")
+        # Generic leftover protocol token from auto-linking.
+        out = out.replace("mailto:", "")
+        return out
+
+    @staticmethod
     def _fallback_write_file_payload(raw: str) -> dict[str, Any] | None:
         """Best-effort fallback parser for malformed write_file payloads.
 
@@ -554,6 +565,7 @@ class GeminiWebProvider(LLMProvider):
         content_value = raw_content.replace('\\"', '"').replace('\\\\', '\\')
         content_value = content_value.replace("\\n", "[[NNNLLL]]")
         content_value = GeminiWebProvider._decode_escaped_controls_outside_strings(content_value)
+        content_value = GeminiWebProvider._repair_mailto_pollution(content_value)
         content_value = GeminiWebProvider._restore_common_python_dunder_tokens(content_value)
 
         return {
