@@ -87,6 +87,26 @@ class ReadFileTool(Tool):
 class WriteFileTool(Tool):
     """Tool to write content to a file."""
 
+    @staticmethod
+    def _extract_file_block(content: str, path: str) -> str:
+        start_token = f'[[FILE_START path="{path}"]]'
+        end_token = f'[[FILE_END path="{path}"]]'
+
+        s = content.find(start_token)
+        if s == -1:
+            return content
+        s += len(start_token)
+
+        e = content.find(end_token, s)
+        if e == -1:
+            return content
+
+        block = content[s:e]
+        # Trim only one optional leading newline introduced by wrapper.
+        if block.startswith("\n"):
+            block = block[1:]
+        return block
+
     def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
@@ -114,8 +134,9 @@ class WriteFileTool(Tool):
         try:
             file_path = _resolve_path(path, self._workspace, self._allowed_dir)
             file_path.parent.mkdir(parents=True, exist_ok=True)
-            file_path.write_text(content, encoding="utf-8")
-            return f"Successfully wrote {len(content)} bytes to {file_path}"
+            normalized_content = self._extract_file_block(content, path)
+            file_path.write_text(normalized_content, encoding="utf-8")
+            return f"Successfully wrote {len(normalized_content)} bytes to {file_path}"
         except PermissionError as e:
             return f"Error: {e}"
         except Exception as e:
