@@ -330,10 +330,17 @@ class GeminiWebProvider(LLMProvider):
         i = content_value_start
         n = len(text)
         in_string = False
+        in_comment = False
         quote_char = ""
         triple = False
 
         while i < n:
+            if in_comment:
+                if text[i] == "\n":
+                    in_comment = False
+                i += 1
+                continue
+
             if not in_string:
                 # JSON terminator candidate: " followed by optional whitespace and } / }}
                 if text[i] == '"' and not GeminiWebProvider._is_escaped(text, i):
@@ -342,6 +349,11 @@ class GeminiWebProvider(LLMProvider):
                         j += 1
                     if j < n and text[j] == '}':
                         return i
+
+                if text[i] == "#":
+                    in_comment = True
+                    i += 1
+                    continue
 
                 if text.startswith('"""', i) and not GeminiWebProvider._is_escaped(text, i):
                     in_string = True

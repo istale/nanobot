@@ -106,3 +106,20 @@ def test_write_file_end_boundary_ignores_braces_inside_strings():
     assert calls[0].name == "write_file"
     assert 'print("}} inside string")' in calls[0].arguments["content"]
     assert "print(2)" in calls[0].arguments["content"]
+
+
+def test_write_file_comment_with_triple_quotes_does_not_truncate():
+    provider = _make_provider()
+    malformed = (
+        '{"name":"write_file","arguments":{"path":"D:\\temp\\comment.py",'
+        '"content":"# \"\"\" marker in comment\\nprint(123)\\nprint(456)"}}'
+    )
+    content = f"<tool_call>{malformed}</tool_call>"
+
+    _cleaned, calls = provider._extract_tool_calls(content)
+
+    assert len(calls) == 1
+    out = calls[0].arguments["content"]
+    assert '# """ marker in comment' in out
+    assert "print(123)" in out
+    assert "print(456)" in out
