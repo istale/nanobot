@@ -28,6 +28,14 @@ class ReadFileTool(Tool):
 
     _MAX_CHARS = 128_000  # ~128 KB — prevents OOM from reading huge files into LLM context
 
+    @staticmethod
+    def _wrap_file_content(path: str, content: str) -> str:
+        return (
+            f'[[FILE_START path="{path}"]]\n'
+            f"{content}\n"
+            f'[[FILE_END path="{path}"]]'
+        )
+
     def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
@@ -65,8 +73,11 @@ class ReadFileTool(Tool):
 
             content = file_path.read_text(encoding="utf-8")
             if len(content) > self._MAX_CHARS:
-                return content[: self._MAX_CHARS] + f"\n\n... (truncated — file is {len(content):,} chars, limit {self._MAX_CHARS:,})"
-            return content
+                truncated = content[: self._MAX_CHARS] + (
+                    f"\n\n... (truncated — file is {len(content):,} chars, limit {self._MAX_CHARS:,})"
+                )
+                return self._wrap_file_content(path, truncated)
+            return self._wrap_file_content(path, content)
         except PermissionError as e:
             return f"Error: {e}"
         except Exception as e:
