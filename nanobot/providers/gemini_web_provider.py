@@ -515,17 +515,20 @@ class GeminiWebProvider(LLMProvider):
         if not path_match or not content_start:
             return None
 
-        end = GeminiWebProvider._find_write_file_content_end(text, content_start.end())
-        if end < content_start.end():
-            # Fallback to reverse-boundary strategy for highly malformed tails.
-            end = text.rfind('"}}')
-            if end < content_start.end():
-                end = text.rfind('"}')
-            if end < content_start.end():
-                return None
+        content_value_start = content_start.end()
+        end_scan = GeminiWebProvider._find_write_file_content_end(text, content_value_start)
+        end_r2 = text.rfind('"}}')
+        end_r1 = text.rfind('"}')
+
+        candidates = [x for x in (end_scan, end_r2, end_r1) if x >= content_value_start]
+        if not candidates:
+            return None
+
+        # Prefer the farthest valid boundary to reduce premature truncation.
+        end = max(candidates)
 
         raw_path = path_match.group(1)
-        raw_content = text[content_start.end() : end]
+        raw_content = text[content_value_start:end]
         if '"content":"""' in text and raw_content.startswith('""') and not raw_content.startswith('"""'):
             raw_content = '"' + raw_content
 

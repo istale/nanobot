@@ -123,3 +123,20 @@ def test_write_file_comment_with_triple_quotes_does_not_truncate():
     assert '# """ marker in comment' in out
     assert "print(123)" in out
     assert "print(456)" in out
+
+
+def test_write_file_triple_quote_block_not_truncated():
+    provider = _make_provider()
+    malformed = (
+        '{"name":"write_file","arguments":{"path":"D:\\temp\\doc.py",'
+        '"content":"\"\"\"module\\ndoc\\n\"\"\"\\nprint(999)"}}'
+    )
+    content = f"<tool_call>{malformed}</tool_call>"
+
+    _cleaned, calls = provider._extract_tool_calls(content)
+
+    assert len(calls) == 1
+    out = calls[0].arguments["content"]
+    assert '"""module' in out
+    assert 'doc' in out
+    assert 'print(999)' in out
