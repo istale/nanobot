@@ -404,7 +404,12 @@ class GeminiWebProvider(LLMProvider):
 
     @staticmethod
     def _decode_escaped_controls_outside_strings(text: str) -> str:
-        """Decode \n/\r/\t only when outside code strings."""
+        """Decode escaped controls only outside code strings.
+
+        Uses [[NNNLLL]] as a temporary newline token so literal "\\n" inside
+        string literals can be preserved.
+        """
+        nl_token = "[[NNNLLL]]"
         out: list[str] = []
         i = 0
         n = len(text)
@@ -414,6 +419,10 @@ class GeminiWebProvider(LLMProvider):
 
         while i < n:
             if not in_string:
+                if text.startswith(nl_token, i):
+                    out.append("\n")
+                    i += len(nl_token)
+                    continue
                 if text.startswith('"""', i):
                     in_string = True
                     quote_char = '"'
@@ -482,7 +491,8 @@ class GeminiWebProvider(LLMProvider):
             out.append(ch)
             i += 1
 
-        return "".join(out)
+        # Any token left must have been inside string literals; restore as literal "\\n".
+        return "".join(out).replace(nl_token, "\\n")
 
     @staticmethod
     def _restore_common_python_dunder_tokens(text: str) -> str:
@@ -539,9 +549,10 @@ class GeminiWebProvider(LLMProvider):
                 except Exception:
                     return s.replace('\\\\', '\\')
 
-        # Decode one JSON transport layer, then restore line controls only outside
-        # code strings (so string literals keep their own escapes).
+        # Decode one JSON transport layer; temporarily protect literal \n with token
+        # and only turn them into real newlines when outside string literals.
         content_value = raw_content.replace('\\"', '"').replace('\\\\', '\\')
+        content_value = content_value.replace("\\n", "[[NNNLLL]]")
         content_value = GeminiWebProvider._decode_escaped_controls_outside_strings(content_value)
         content_value = GeminiWebProvider._restore_common_python_dunder_tokens(content_value)
 

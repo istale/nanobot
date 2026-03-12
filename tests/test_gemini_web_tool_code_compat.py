@@ -123,3 +123,18 @@ def test_write_file_comment_with_triple_quotes_does_not_truncate():
     assert '# """ marker in comment' in out
     assert "print(123)" in out
     assert "print(456)" in out
+
+
+def test_write_file_newline_before_decorator_restored():
+    provider = _make_provider()
+    malformed = (
+        '{"name":"write_file","arguments":{"path":"D:\\temp\\api.py",'
+        '"content":"def x():\\n    return 1\\n@app.route(\"/ok\")\\ndef ok():\\n    return \'ok\'"}}'
+    )
+    content = f"<tool_call>{malformed}</tool_call>"
+
+    _cleaned, calls = provider._extract_tool_calls(content)
+
+    assert len(calls) == 1
+    out = calls[0].arguments["content"]
+    assert "def x():\n    return 1\n@app.route(\"/ok\")" in out
