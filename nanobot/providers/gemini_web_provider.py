@@ -511,14 +511,8 @@ class GeminiWebProvider(LLMProvider):
 
     @staticmethod
     def _repair_mailto_pollution(text: str) -> str:
-        """Repair web-render/mailto pollution seen in code payloads."""
-        out = text
-        # Common pollution around decorators/newline markers.
-        out = out.replace("mailto:n@", "\\n@")
-        out = out.replace("mailto:%0An@", "\\n@")
-        # Generic leftover protocol token from auto-linking.
-        out = out.replace("mailto:", "")
-        return out
+        """Repair known decorator pollution pattern from web-render path."""
+        return text.replace("@app.routemailto:n", "")
 
     @staticmethod
     def _fallback_write_file_payload(raw: str) -> dict[str, Any] | None:
