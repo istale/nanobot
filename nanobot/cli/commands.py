@@ -380,27 +380,8 @@ def _merge_missing_defaults(existing: Any, defaults: Any) -> Any:
 
 
 def _onboard_plugins(config_path: Path) -> None:
-    """Inject default config for all discovered channels (built-in + plugins)."""
-    import json
-
-    from nanobot.channels.registry import discover_all
-
-    all_channels = discover_all()
-    if not all_channels:
-        return
-
-    with open(config_path, encoding="utf-8") as f:
-        data = json.load(f)
-
-    channels = data.setdefault("channels", {})
-    for name, cls in all_channels.items():
-        if name not in channels:
-            channels[name] = cls.default_config()
-        else:
-            channels[name] = _merge_missing_defaults(channels[name], cls.default_config())
-
-    with open(config_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    """Offline-use build keeps no channel plugins, so onboarding is a no-op."""
+    return
 
 
 def _make_provider(config: Config):
@@ -605,10 +586,9 @@ def _run_gateway(
     port: int | None = None,
     open_browser_url: str | None = None,
 ) -> None:
-    """Shared gateway runtime; ``open_browser_url`` opens a tab once channels are up."""
+    """Shared gateway runtime for the offline-use build."""
     from nanobot.agent.loop import AgentLoop
     from nanobot.bus.queue import MessageBus
-    from nanobot.channels.manager import ChannelManager
     from nanobot.cron.service import CronService
     from nanobot.cron.types import CronJob
     from nanobot.heartbeat.service import HeartbeatService
@@ -718,24 +698,8 @@ def _run_gateway(
 
     cron.on_job = on_cron_job
 
-    # Create channel manager (forwards SessionManager so the WebSocket channel
-    # can serve the embedded webui's REST surface).
-    channels = ChannelManager(config, bus, session_manager=session_manager)
-
     def _pick_heartbeat_target() -> tuple[str, str]:
-        """Pick a routable channel/chat target for heartbeat-triggered messages."""
-        enabled = set(channels.enabled_channels)
-        # Prefer the most recently updated non-internal session on an enabled channel.
-        for item in session_manager.list_sessions():
-            key = item.get("key") or ""
-            if ":" not in key:
-                continue
-            channel, chat_id = key.split(":", 1)
-            if channel in {"cli", "system"}:
-                continue
-            if channel in enabled and chat_id:
-                return channel, chat_id
-        # Fallback keeps prior behavior but remains explicit.
+        """Offline-use routes heartbeat messages to the local CLI session."""
         return "cli", "direct"
 
     # Create heartbeat service
@@ -782,10 +746,7 @@ def _run_gateway(
         timezone=config.agents.defaults.timezone,
     )
 
-    if channels.enabled_channels:
-        console.print(f"[green]✓[/green] Channels enabled: {', '.join(channels.enabled_channels)}")
-    else:
-        console.print("[yellow]Warning: No channels enabled[/yellow]")
+    console.print("[green]✓[/green] Offline mode: external channels removed")
 
     cron_status = cron.status()
     if cron_status["jobs"] > 0:
@@ -882,7 +843,6 @@ def _run_gateway(
             await heartbeat.start()
             tasks = [
                 agent.run(),
-                channels.start_all(),
                 _health_server(config.gateway.host, port),
             ]
             if open_browser_url:
@@ -900,7 +860,6 @@ def _run_gateway(
             heartbeat.stop()
             cron.stop()
             agent.stop()
-            await channels.stop_all()
             # Flush all cached sessions to durable storage before exit.
             # This prevents data loss on filesystems with write-back
             # caching (rclone VFS, NFS, FUSE mounts, etc.).
@@ -1160,176 +1119,36 @@ channels_app = typer.Typer(help="Manage channels")
 app.add_typer(channels_app, name="channels")
 
 
+@channels_app.callback(invoke_without_command=True)
+def channels_unavailable(ctx: typer.Context):
+    """Channel commands are removed in offline-use."""
+    if ctx.invoked_subcommand is None:
+        console.print("[yellow]Channel management is unavailable in offline-use.[/yellow]")
+        raise typer.Exit(0)
+
+
 @channels_app.command("status")
-def channels_status(
-    config_path: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
-):
+def channels_status():
     """Show channel status."""
-    from nanobot.channels.registry import discover_all
-    from nanobot.config.loader import load_config, set_config_path
+    console.print("[yellow]No external channels are available in offline-use.[/yellow]")
 
-    resolved_config_path = Path(config_path).expanduser().resolve() if config_path else None
-    if resolved_config_path is not None:
-        set_config_path(resolved_config_path)
-
-    config = load_config(resolved_config_path)
-
-    table = Table(title="Channel Status")
-    table.add_column("Channel", style="cyan")
-    table.add_column("Enabled")
-
-    for name, cls in sorted(discover_all().items()):
-        section = getattr(config.channels, name, None)
-        if section is None:
-            enabled = False
-        elif isinstance(section, dict):
-            enabled = section.get("enabled", False)
-        else:
-            enabled = getattr(section, "enabled", False)
-        table.add_row(
-            cls.display_name,
-            "[green]\u2713[/green]" if enabled else "[dim]\u2717[/dim]",
-        )
-
-    console.print(table)
-
-
-def _get_bridge_dir() -> Path:
-    """Get the bridge directory, setting it up if needed."""
-    import shutil
-    import subprocess
-
-    # User's bridge location
-    from nanobot.config.paths import get_bridge_install_dir
-
-    user_bridge = get_bridge_install_dir()
-
-    # Check if already built
-    if (user_bridge / "dist" / "index.js").exists():
-        return user_bridge
-
-    # Check for npm
-    npm_path = shutil.which("npm")
-    if not npm_path:
-        console.print("[red]npm not found. Please install Node.js >= 18.[/red]")
-        raise typer.Exit(1)
-
-    # Find source bridge: first check package data, then source dir
-    pkg_bridge = Path(__file__).parent.parent / "bridge"  # nanobot/bridge (installed)
-    src_bridge = Path(__file__).parent.parent.parent / "bridge"  # repo root/bridge (dev)
-
-    source = None
-    if (pkg_bridge / "package.json").exists():
-        source = pkg_bridge
-    elif (src_bridge / "package.json").exists():
-        source = src_bridge
-
-    if not source:
-        console.print("[red]Bridge source not found.[/red]")
-        console.print("Try reinstalling: pip install --force-reinstall nanobot")
-        raise typer.Exit(1)
-
-    console.print(f"{__logo__} Setting up bridge...")
-
-    # Copy to user directory
-    user_bridge.parent.mkdir(parents=True, exist_ok=True)
-    if user_bridge.exists():
-        shutil.rmtree(user_bridge)
-    shutil.copytree(source, user_bridge, ignore=shutil.ignore_patterns("node_modules", "dist"))
-
-    # Install and build
-    try:
-        console.print("  Installing dependencies...")
-        subprocess.run([npm_path, "install"], cwd=user_bridge, check=True, capture_output=True)
-
-        console.print("  Building...")
-        subprocess.run([npm_path, "run", "build"], cwd=user_bridge, check=True, capture_output=True)
-
-        console.print("[green]✓[/green] Bridge ready\n")
-    except subprocess.CalledProcessError as e:
-        console.print(f"[red]Build failed: {e}[/red]")
-        if e.stderr:
-            console.print(f"[dim]{e.stderr.decode()[:500]}[/dim]")
-        raise typer.Exit(1)
-
-    return user_bridge
-
-
-@channels_app.command("login")
-def channels_login(
-    channel_name: str = typer.Argument(..., help="Channel name (e.g. weixin, whatsapp)"),
-    force: bool = typer.Option(False, "--force", "-f", help="Force re-authentication even if already logged in"),
-    config_path: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
-):
-    """Authenticate with a channel via QR code or other interactive login."""
-    from nanobot.channels.registry import discover_all
-    from nanobot.config.loader import load_config, set_config_path
-
-    resolved_config_path = Path(config_path).expanduser().resolve() if config_path else None
-    if resolved_config_path is not None:
-        set_config_path(resolved_config_path)
-
-    config = load_config(resolved_config_path)
-    channel_cfg = getattr(config.channels, channel_name, None) or {}
-
-    # Validate channel exists
-    all_channels = discover_all()
-    if channel_name not in all_channels:
-        available = ", ".join(all_channels.keys())
-        console.print(f"[red]Unknown channel: {channel_name}[/red]  Available: {available}")
-        raise typer.Exit(1)
-
-    console.print(f"{__logo__} {all_channels[channel_name].display_name} Login\n")
-
-    channel_cls = all_channels[channel_name]
-    channel = channel_cls(channel_cfg, bus=None)
-
-    success = asyncio.run(channel.login(force=force))
-
-    if not success:
-        raise typer.Exit(1)
-
-
-# ============================================================================
-# Plugin Commands
-# ============================================================================
 
 plugins_app = typer.Typer(help="Manage channel plugins")
 app.add_typer(plugins_app, name="plugins")
 
 
+@plugins_app.callback(invoke_without_command=True)
+def plugins_unavailable(ctx: typer.Context):
+    """Plugin commands are removed in offline-use."""
+    if ctx.invoked_subcommand is None:
+        console.print("[yellow]Channel plugins are unavailable in offline-use.[/yellow]")
+        raise typer.Exit(0)
+
+
 @plugins_app.command("list")
 def plugins_list():
-    """List all discovered channels (built-in and plugins)."""
-    from nanobot.channels.registry import discover_all, discover_channel_names
-    from nanobot.config.loader import load_config
-
-    config = load_config()
-    builtin_names = set(discover_channel_names())
-    all_channels = discover_all()
-
-    table = Table(title="Channel Plugins")
-    table.add_column("Name", style="cyan")
-    table.add_column("Source", style="magenta")
-    table.add_column("Enabled")
-
-    for name in sorted(all_channels):
-        cls = all_channels[name]
-        source = "builtin" if name in builtin_names else "plugin"
-        section = getattr(config.channels, name, None)
-        if section is None:
-            enabled = False
-        elif isinstance(section, dict):
-            enabled = section.get("enabled", False)
-        else:
-            enabled = getattr(section, "enabled", False)
-        table.add_row(
-            cls.display_name,
-            source,
-            "[green]yes[/green]" if enabled else "[dim]no[/dim]",
-        )
-
-    console.print(table)
+    """List channel plugins."""
+    console.print("[yellow]No channel plugins are available in offline-use.[/yellow]")
 
 
 # ============================================================================

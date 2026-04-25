@@ -825,81 +825,29 @@ def _configure_providers(config: Config) -> None:
 
 @lru_cache(maxsize=1)
 def _get_channel_info() -> dict[str, tuple[str, type[BaseModel]]]:
-    """Get channel info (display name + config class) from channel modules."""
-    import importlib
-
-    from nanobot.channels.registry import discover_all
-
-    result: dict[str, tuple[str, type[BaseModel]]] = {}
-    for name, channel_cls in discover_all().items():
-        try:
-            mod = importlib.import_module(f"nanobot.channels.{name}")
-            config_name = channel_cls.__name__.replace("Channel", "Config")
-            config_cls = getattr(mod, config_name, None)
-            if config_cls and isinstance(config_cls, type) and issubclass(config_cls, BaseModel):
-                display_name = getattr(channel_cls, "display_name", name.capitalize())
-                result[name] = (display_name, config_cls)
-        except Exception:
-            logger.warning(f"Failed to load channel module: {name}")
-    return result
+    """Offline-use build has no chat channel modules."""
+    return {}
 
 
 def _get_channel_names() -> dict[str, str]:
     """Get channel display names."""
-    return {name: info[0] for name, info in _get_channel_info().items()}
+    return {}
 
 
 def _get_channel_config_class(channel: str) -> type[BaseModel] | None:
     """Get channel config class."""
-    entry = _get_channel_info().get(channel)
-    return entry[1] if entry else None
+    return None
 
 
 def _configure_channel(config: Config, channel_name: str) -> None:
-    """Configure a single channel."""
-    channel_dict = getattr(config.channels, channel_name, None)
-    if channel_dict is None:
-        channel_dict = {}
-        setattr(config.channels, channel_name, channel_dict)
-
-    display_name = _get_channel_names().get(channel_name, channel_name)
-    config_cls = _get_channel_config_class(channel_name)
-
-    if config_cls is None:
-        console.print(f"[red]No configuration class found for {display_name}[/red]")
-        return
-
-    model = config_cls.model_validate(channel_dict) if channel_dict else config_cls()
-
-    updated_channel = _configure_pydantic_model(
-        model,
-        display_name,
-    )
-    if updated_channel is not None:
-        new_dict = updated_channel.model_dump(by_alias=True, exclude_none=True)
-        setattr(config.channels, channel_name, new_dict)
+    """Offline-use build has no configurable chat channels."""
+    console.print("[yellow]Chat channels are not available in offline-use.[/yellow]")
 
 
 def _configure_channels(config: Config) -> None:
-    """Configure chat channels."""
-    channel_names = list(_get_channel_names().keys())
-    choices = channel_names + ["<- Back"]
-
-    while True:
-        try:
-            console.clear()
-            _show_section_header("Chat Channels", "Select a channel to configure connection settings")
-            answer = _select_with_back("Select channel:", choices)
-
-            if answer is _BACK_PRESSED or answer is None or answer == "<- Back":
-                break
-
-            # Type guard: answer is now guaranteed to be a string
-            assert isinstance(answer, str)
-            _configure_channel(config, answer)
-        except KeyboardInterrupt:
-            console.print("\n[dim]Returning to main menu...[/dim]")
-            break
+    """Offline-use build has no configurable chat channels."""
+    console.print("[yellow]Chat channels are not available in offline-use.[/yellow]")
+    _pause()
 
 
 # --- General Settings ---
@@ -1082,7 +1030,6 @@ def run_onboard(initial_config: Config | None = None) -> OnboardResult:
                 "What would you like to configure?",
                 choices=[
                     "[P] LLM Provider",
-                    "[C] Chat Channel",
                     "[H] Channel Common",
                     "[A] Agent Settings",
                     "[I] API Server",
@@ -1107,7 +1054,6 @@ def run_onboard(initial_config: Config | None = None) -> OnboardResult:
 
         _MENU_DISPATCH = {
             "[P] LLM Provider": lambda: _configure_providers(config),
-            "[C] Chat Channel": lambda: _configure_channels(config),
             "[H] Channel Common": lambda: _configure_general_settings(config, "Channel Common"),
             "[A] Agent Settings": lambda: _configure_general_settings(config, "Agent Settings"),
             "[I] API Server": lambda: _configure_general_settings(config, "API Server"),
